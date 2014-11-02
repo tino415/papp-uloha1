@@ -22,38 +22,96 @@ Poznamky:
 #include <semaphore.h>
 #include <unistd.h>
 
+#define POCET_PECI 4
+#define POCET_CHLEBOV_NA_PRESTAVKU 2
+#define POCET_PEKAROV 10
+
 // signal na zastavenie simulacie
 int stoj = 0;
 
+int pocet_chlebov;
+int pocet_pekarov = 0;
+pthread_mutex_t mutex_pocet_chlebov = PTHREAD_MUTEX_INITIALIZER; 
+pthread_mutex_t mutex_pocitadlo_pekarov = PTHREAD_MUTEX_INITIALIZER; 
+pthread_mutex_t mutex_turniket = PTHREAD_MUTEX_INITIALIZER; 
+sem_t sem_pece;
+sem_t sem_pekari;
+
 // pekar
-void priprava(void) {
+void priprava(int id) {
+	printf("Pekar %d pripravuje chleba\n", id);
     sleep(4);
 }
 
-void pecenie(void) {
+void pecenie(int id) {
+	printf("Pekar %d pecie chleba\n", id);
+	sem_wait(&sem_pece);
     sleep(2);
+	sem_post(&sem_pece);
+
+	pthread_mutex_lock(&mutex_pocet_chlebov);
+		pocet_chlebov++;
+	pthread_mutex_unlock(&mutex_pocet_chlebov);
+}
+
+void prestavka(int id) {
+	printf("Pekar %d prestávkuje\n", id);
+	sleep(4);
 }
 
 void *pekar( void *ptr ) {
 
+	int id = (long) ptr;
+	int pocet_chlebov = 0;
+	int i;
+
     while(!stoj) {
-        priprava();
-        pecenie();
+        priprava(id);
+		if(stoj) break;
+        pecenie(id);
+		if(stoj) break;
+		pocet_chlebov++;
+		if(pocet_chlebov % POCET_CHLEBOV_NA_PRESTAVKU == 0) {
+			pthread_mutex_lock(&mutex_pocitadlo_pekarov);
+			printf("%d ide na prestavku\n", id);
+			if(stoj) break;
+			if(pocet_pekarov == (POCET_PEKAROV - 1)) {
+				pocet_pekarov = 0;
+				printf("%d je posledny\n", id);
+				for(i=0;i<(POCET_PEKAROV -1);i++) {
+					sem_post(&sem_pekari);
+					pthread_mutex_lock(&mutex_turniket);
+				}
+				pthread_mutex_unlock(&mutex_pocitadlo_pekarov);
+			} else {
+				printf("%d ide cakat na posledného\n", id);
+				pocet_pekarov++;
+				pthread_mutex_unlock(&mutex_pocitadlo_pekarov);
+				sem_wait(&sem_pekari);
+				pthread_mutex_unlock(&mutex_turniket);
+			}
+			if(stoj)break;
+			prestavka(id);
+		}
     }
     return NULL;
 }
 
 int main(void) {
-    int i;
+    long i;
 
     pthread_t pekari[10];
+	sem_init(&sem_pece, 0, POCET_PECI);
+	sem_init(&sem_pekari, 0, 0);
 
-    for (i=0;i<10;i++) pthread_create( &pekari[i], NULL, &pekar, NULL);
+    for (i=0;i<10;i++) pthread_create( &pekari[i], NULL, &pekar, (void*)i);
 
     sleep(30);
     stoj = 1;
 
     for (i=0;i<10;i++) pthread_join( pekari[i], NULL);
+
+	printf("Upieklo sa %d chlebov\n", pocet_chlebov);
 
     exit(EXIT_SUCCESS);
 }
