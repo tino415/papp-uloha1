@@ -24,42 +24,114 @@ Poznamky:
 #include <semaphore.h>
 #include <unistd.h>
 
+#define pocet_maliarov 10
+#define dlzka_behu_programu 30
+#define pocet_maliarov_na_prestavku 3
+#define pocet_vedier_na_prestavku 4
+
 
 // signal na zastavenie
 int stoj = 0;
+int minute_vedra = 0;
+int cakajuci_na_prestavku = 0;
+int brana = 0;
+pthread_mutex_t mutex_minute_vedra = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_pocet_cakajucich = PTHREAD_MUTEX_INITIALIZER;
+sem_t sem_cakajuci_na_prestavku;
+sem_t sem_iduci_na_prestavku;
 
 // maliar - malovanie steny
-void maluj(void) {
+void maluj(int id) {
+	printf("%d maluje\n", id);
     sleep(2);
 }
 
 //  maliar - branie farby
-void ber(void) {
-  sleep(1);
+void ber(int id) {
+	printf("%d berie farbu\n", id);
+	pthread_mutex_lock(&mutex_minute_vedra);
+		minute_vedra++;
+	pthread_mutex_unlock(&mutex_minute_vedra);
+  	sleep(1);
+
+}
+
+void oddychuj(int id) {
+	printf("Oddychuje %d\n", id);
+	sleep(2);
 }
 
 // maliar
 void *maliar( void *ptr ) {
+	int id = (long)ptr;
+	int minute_vedra = 0;
 
     // pokial nie je zastaveny
     while(!stoj) {
-        maluj();
-        ber();
+        maluj(id);
+		if(stoj) break;
+        ber(id);
+		minute_vedra++;
+		if(stoj) break;
+
+		if((minute_vedra % pocet_vedier_na_prestavku) == 0) {
+			printf("%d chce ist na prestavku\n", id);
+			sem_wait(&sem_cakajuci_na_prestavku);
+			if(stoj) break;
+
+			printf("%d sa dostal za prvy semafor\n", id);
+			
+			pthread_mutex_lock(&mutex_pocet_cakajucich);
+			cakajuci_na_prestavku++;
+
+			printf("%d je za mutexom na pocet cakajucich\n", id);
+
+			if(cakajuci_na_prestavku == pocet_maliarov_na_prestavku) {
+				printf("%d ide posledny na prestavku\n", id);
+				int i;
+				cakajuci_na_prestavku = 0;
+				pthread_mutex_unlock(&mutex_pocet_cakajucich);
+				for(i=0;i<(pocet_maliarov_na_prestavku-1);i++) {
+					sem_post(&sem_iduci_na_prestavku);
+					sem_post(&sem_cakajuci_na_prestavku);
+					sem_post(&sem_cakajuci_na_prestavku);
+					sem_post(&sem_cakajuci_na_prestavku);
+				}
+			} else {
+				printf("%d caka na poslednecho\n", id);
+				pthread_mutex_unlock(&mutex_pocet_cakajucich);
+				sem_wait(&sem_iduci_na_prestavku);
+				if(stoj) break;
+			}
+			oddychuj(id);
+		}
     }
+
+	printf("Maliar %d minul %d vedier\n", id, minute_vedra);
     return NULL;
 }
 
 int main(void) {
-    int i;
+    long i;
 
-    pthread_t maliari[10];
+	sem_init(&sem_cakajuci_na_prestavku, 0, 3);
+	sem_init(&sem_iduci_na_prestavku, 0, 0);
 
-    for (i=0;i<10;i++) pthread_create(&maliari[i], NULL, &maliar, NULL);
+    pthread_t maliari[pocet_maliarov];
 
-    sleep(30);
+    for (i=0;i<pocet_maliarov;i++) pthread_create(&maliari[i], NULL, &maliar, (void*)i);
+
+    sleep(dlzka_behu_programu);
     stoj = 1;
 
-    for (i=0;i<10;i++) pthread_join(maliari[i], NULL);
+	for (i=0;i<pocet_maliarov;i++) {
+		sem_post(&sem_iduci_na_prestavku);
+		sem_post(&sem_cakajuci_na_prestavku);
+	}
+
+    for (i=0;i<pocet_maliarov;i++) pthread_join(maliari[i], NULL);
+
+	printf("Dokopi sa minulo %d vedier\n", minute_vedra);
 
     exit(EXIT_SUCCESS);
 }
