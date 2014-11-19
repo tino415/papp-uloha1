@@ -25,57 +25,129 @@ Poznamky:
 // signal na zastavenie simulacie
 int stoj = 0;
 
+int dar_od_lovcov = 0;
+int dar_od_zberacov = 0;
+
+pthread_mutex_t mutex_dari_lovcov = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_dari_zberacov = PTHREAD_MUTEX_INITIALIZER;
+sem_t l_controll, z_controll;
+int l_count = 0;
+int z_count = 0;
+sem_t room_empty;
+sem_t l_in_room, z_in_room;
+sem_t z_turnstile;
+
 // lovec
-void lov(void) {
+void lov(int id) {
+	printf("%d lovi\n", id);
     sleep(6);
 }
 
-void dar_lov(void) {
+void dar_lov(int id) {
+	printf("%d daruje lov v chrame\n", id);
+	pthread_mutex_lock(&mutex_dari_lovcov);
+	dar_od_lovcov++;
+	pthread_mutex_unlock(&mutex_dari_lovcov);
     sleep(2);
 }
 
 void *lovec( void *ptr ) {
+	int id = (long) ptr;
 
     while(!stoj) {
-        lov();
-        dar_lov();
+		
+        lov(id);
+
+		sem_wait(&l_controll);
+		if(l_count == 0) {
+			printf("Prvy lovec%d\n", id);
+			sem_wait(&z_turnstile);	
+
+			printf("PL zab turn %d\n", id);
+			sem_post(&z_controll);
+			printf("PL odblok controll %d\n", id);
+			sem_wait(&room_empty);
+			printf("PL room_emp %d\n", id);
+		}
+		l_count++;
+		sem_post(&l_controll);
+
+		sem_wait(&l_in_room);
+        dar_lov(id);
+		sem_post(&l_in_room);
+
+		sem_wait(&l_controll);
+		l_count--;
+		if(l_count == 0) sem_post(&room_empty);
+		sem_post(&l_controll);
     }
     return NULL;
 }
 
 // zberac
-void zber(void) {
-    sleep(4);
+void zber(int id) {
+	printf("%d zbera\n", id);
 }
 
-void dar_zber(void) {
+void dar_zber(int id) {
+	printf("%d daruje zber\n", id);
+	pthread_mutex_lock(&mutex_dari_zberacov);
+	dar_od_zberacov++;
+	pthread_mutex_unlock(&mutex_dari_zberacov);
     sleep(1);
 }
 
 void *zberac( void *ptr ) {
+	int id = (long) ptr;
 
     // pokial nie je zastaveny
     while(!stoj) {
-        zber();
-        dar_zber();
+        zber(id);
+
+		sem_wait(&z_turnstile);
+		sem_post(&z_turnstile);
+
+		sem_wait(&z_controll);
+		if(z_count == 0) sem_wait(&room_empty);
+		z_count++;
+		sem_post(&z_controll);
+
+		sem_wait(&z_in_room);
+        dar_zber(id);
+		sem_post(&z_in_room);
+
+		sem_wait(&z_controll);
+		z_count--;
+		if(z_count == 0) sem_post(&room_empty);
+		sem_post(&z_controll);
     }
     return NULL;
 }
 
 int main(void) {
-    int i;
+    long i;
 
     pthread_t lovci[6];
     pthread_t zberaci[12];
 
-    for (i=0;i<6;i++) pthread_create( &lovci[i], NULL, &lovec, NULL);
-    for (i=0;i<12;i++) pthread_create( &zberaci[i], NULL, &zberac, NULL);
+	sem_init(&l_controll, 0, 1);
+	sem_init(&z_controll, 0, 1);
+	sem_init(&room_empty, 0, 1);
+	sem_init(&l_in_room, 0, 4);
+	sem_init(&z_in_room, 0, 6);
+	sem_init(&z_turnstile, 0, 1);
+
+    for (i=0;i<6;i++) pthread_create( &lovci[i], NULL, &lovec, (void*)i);
+    for (i=0;i<12;i++) pthread_create( &zberaci[i], NULL, &zberac, (void*)i);
 
     sleep(30);
     stoj = 1;
 
     for (i=0;i<6;i++) pthread_join( lovci[i], NULL);
     for (i=0;i<12;i++) pthread_join( zberaci[i], NULL);
+
+	printf("Zberaci darovali %d darov\n", dar_od_zberacov);
+	printf("Lovci darovali %d darov\n", dar_od_lovcov);
 
     exit(EXIT_SUCCESS);
 }

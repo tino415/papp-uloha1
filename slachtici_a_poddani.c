@@ -22,16 +22,27 @@ Poznamky:
 #include <semaphore.h>
 #include <unistd.h>
 
+#define MAX_SLACHTICI 2
+
 // signal na zastavenie simulacie
 int stoj = 0;
+sem_t sem_slachtici;
+sem_t room_empty;
+sem_t podd_turniket;
+sem_t podd_mutex;
+sem_t sla_mutex;
+int c_poddany = 0;
+int c_sla = 0;
 
 // klananie sa
 void klananie(void) {
+	printf("Klananie\n");
     sleep(1);
 }
 
 // prestavka medzi klananiami
 void prestavka(void) {
+	printf("Prestavka\n");
     sleep(4);
 }
 
@@ -40,7 +51,24 @@ void *slachtic( void *ptr ) {
 
     // pokial nie je zastaveny
     while(!stoj) {
+		printf("Slachtic\n");
+		sem_wait(&podd_turniket);
+		printf("Slachtic turniket\n");
+		sem_wait(&sla_mutex);
+		printf("Ya turniketo \n");
+		if(c_sla == 0) sem_wait(&room_empty);
+		c_sla++;
+		sem_post(&sla_mutex);
+		
+		printf("Slachtich sa ide klanat\n");
         klananie();
+
+		sem_wait(&sla_mutex);
+		c_sla--;
+		sem_post(&sla_mutex);
+
+		sem_post(&podd_turniket);
+		printf("Slachtic si ide dat prestavku\n");
         prestavka();
     }
     return NULL;
@@ -51,7 +79,27 @@ void *poddany( void *ptr ) {
 
     // pokial nie je zastaveny
     while(!stoj) {
+		printf("Poddany\n");
+
+		sem_wait(&podd_turniket);
+		sem_post(&podd_turniket);
+		printf("Poddany turniket\n");
+
+		sem_wait(&podd_mutex);
+		c_poddany++;
+		sem_post(&podd_mutex);
+
+
+		printf("Poddany sa ide klanat\n");
         klananie();
+
+		sem_wait(&podd_mutex);
+		c_poddany--;
+		printf("PoddNY je %d\n", c_poddany);
+		if(c_poddany == 0) sem_post(&room_empty);
+		sem_post(&podd_mutex);
+
+		printf("poddany si dava prestavku\n");
         prestavka();
     }
     return NULL;
@@ -59,6 +107,13 @@ void *poddany( void *ptr ) {
 
 int main(void) {
     int i;
+
+	sem_init(&sem_slachtici, 0, MAX_SLACHTICI);
+	sem_init(&podd_turniket, 0, 1);
+	sem_init(&podd_mutex, 0, 1);
+	sem_init(&room_empty, 0, 1);
+	sem_init(&sla_mutex, 0, 1);
+	sem_init(&podd_mutex, 0, 1);
 
     pthread_t slachtici[4];
     pthread_t poddani[10];

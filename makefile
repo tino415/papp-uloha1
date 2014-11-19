@@ -1,4 +1,4 @@
-ALL = generator_pismenok lovci_a_zberaci maliari pekari skladnici slachtici_a_poddani repeatable_barrier maliari2
+ALL = generator_pismenok lovci_a_zberaci maliari pekari slachtici_a_poddani repeatable_barrier maliari2 slp2 3slp sportovci
 
 all: $(ALL)
 
